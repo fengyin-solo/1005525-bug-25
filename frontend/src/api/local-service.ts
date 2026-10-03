@@ -1,5 +1,6 @@
 import { MODULE_BY_KEY } from '@/data/modules'
-import { allRows, listRows, resetRows, saveRows } from '@/data/local-store'
+import { addInspectionItem, listInspectionItems } from '@/data/catalog'
+import { allRows, listRows, nextId, resetRows, saveRows } from '@/data/local-store'
 import type { ActionResult, EntryRow, ModuleMeta, OverviewResult, PageResult } from '@/data/types'
 
 // 会写进数据的「往回走」动作：命中就把这条记录标成异常态，看板上能一眼看出来。
@@ -28,6 +29,32 @@ export function listEntries(key: string, filters: Record<string, string> = {}): 
   return { items: matched, total: matched.length, page: 1, size: matched.length }
 }
 
+/** 通用登记入口：成品检验走自己的领域服务做同源校验，其余模块在这里建记录。 */
+export function createEntry(key: string, draft: Record<string, string>): ActionResult {
+  const meta = moduleMeta(key)
+  if (key === 'finishedqc') {
+    return { ok: false, message: '成品检验请使用专用登记入口' }
+  }
+  const missing = meta.fields.filter((field) => field.endsWith('状态') === false && !String(draft[field] ?? '').trim())
+  if (missing.length) {
+    return { ok: false, message: `${missing.join('、')}不能为空` }
+  }
+  const rows = listRows(key)
+  const firstStatus = meta.statuses[0]
+  const row: EntryRow = {
+    id: nextId(key),
+    status: firstStatus,
+    pending: true,
+    abnormal: false,
+  }
+  for (const field of meta.fields) {
+    row[field] = String(draft[field] ?? '').trim()
+  }
+  row[meta.fields[meta.fields.length - 1]] = firstStatus
+  saveRows(key, [...rows, row])
+  return { ok: true, message: `${meta.entity}已登记，当前状态「${firstStatus}」` }
+}
+
 export function runAction(key: string, id: number, action: string): ActionResult {
   const meta = moduleMeta(key)
   const target = meta.actionTargets[action]
@@ -40,8 +67,14 @@ export function runAction(key: string, id: number, action: string): ActionResult
     return { ok: false, message: `没有找到编号为 ${id} 的${meta.entity}` }
   }
   const current = String(rows[index].status)
-  if (current === target) {
-    return { ok: false, message: `${meta.entity}已经是「${target}」，不用重复操作` }
+  const from = meta.statuses.indexOf(current)
+  const to = meta.statuses.indexOf(target)
+  // 状态一段一段往下走：倒序与跳段一律拒收（成品检验在其领域服务里另有判定校验）。
+  if (to <= from) {
+    return { ok: false, message: `${meta.entity}状态只能顺序推进，不能从「${current}」倒序到「${target}」` }
+  }
+  if (to - from > 1) {
+    return { ok: false, message: `不能从「${current}」跳段到「${target}」，请先完成中间环节` }
   }
   const lastStatus = meta.statuses[meta.statuses.length - 1]
   const updated: EntryRow = {
@@ -68,7 +101,7 @@ export function exportEntries(key: string): { filename: string; content: string 
   for (const row of listRows(key)) {
     lines.push([row.id, ...meta.fields.map((field) => row[field] ?? ''), row.status].join(','))
   }
-  return { filename: `${meta.name}-清单.csv`, content: `\uFEFF${lines.join('\n')}` }
+  return { filename: `${meta.name}-清单.csv`, content: `﻿${lines.join('\n')}` }
 }
 
 export function downloadEntries(key: string): void {
@@ -103,3 +136,19 @@ export function loadOverview(): OverviewResult {
   ]
   return { cards, modules }
 }
+
+// 检验项目目录与成品检验领域服务的统一出口，页面只从本服务读写。
+export { listInspectionItems, addInspectionItem }
+export {
+  attachQcToRetainSamples,
+  batchJudgeQc,
+  blockedRows,
+  createQcEntry,
+  getQcRow,
+  hasQcCheckpoint,
+  listQcRows,
+  runQcAction,
+  saveQcEntry,
+  validateQcDraft,
+} from '@/api/finishedqc'
+export type { QcDraft } from '@/api/finishedqc'

@@ -3,10 +3,9 @@
     <header class="page-head">
       <div>
         <h2>留样管理管理</h2>
-        <p class="page-desc">维护留样记录，围绕留样编号、对应批号、留样数量、留样期限做登记、筛选与状态流转。</p>
+        <p class="page-desc">维护留样记录，围绕留样编号、对应批号、留样数量、留样期限做登记、筛选与状态流转；成品检验的判定结果按批号反映到本清单。</p>
       </div>
       <div class="page-actions">
-        <button class="btn primary" type="button" @click="openCreate">登记留样记录</button>
         <button class="btn" type="button" @click="exportRows">导出留样管理清单</button>
       </div>
     </header>
@@ -43,7 +42,7 @@
       </thead>
       <tbody>
         <tr v-for="row in rows" :key="String(row.id)">
-          <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
+          <td v-for="column in columns" :key="column">{{ row[column] || '—' }}</td>
           <td>{{ row.status }}</td>
           <td class="row-actions">
             <button
@@ -58,7 +57,7 @@
           </td>
         </tr>
         <tr v-if="!rows.length">
-          <td :colspan="columns.length + 2" class="empty-state">暂无留样管理数据，可先登记留样记录</td>
+          <td :colspan="columns.length + 2" class="empty-state">暂无留样管理数据，成品检验合格放行后会按批号自动生成留样记录</td>
         </tr>
       </tbody>
     </table>
@@ -74,7 +73,9 @@
 import { computed, onMounted, ref } from 'vue'
 
 import {
+  attachQcToRetainSamples,
   downloadEntries,
+  filterRows,
   listEntries,
   moduleMeta,
   runAction as applyAction,
@@ -82,22 +83,26 @@ import {
 import type { EntryRow } from '@/data/types'
 
 const meta = moduleMeta('retainsample')
-const columns = ["留样编号", "对应批号", "留样数量", "留样期限", "存放条件", "取样日期", "销毁日期", "留样状态"]
-const actions = ["登记留样", "标记到期", "办理销毁"]
-const statuses = ["待留样", "已留样", "已到期", "已销毁"]
-const stats = [{"label": "待留样批次", "value": 0}, {"label": "已留样批次", "value": 0}, {"label": "本月销毁数", "value": 0}]
+const columns = meta.fields
+const actions = ['登记留样', '标记到期', '办理销毁']
+const statuses = ['待留样', '已留样', '已到期', '已销毁']
 
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
-const filterFields = columns.slice(0, 3)
+const filterFields = ['留样编号', '对应批号', '成品检验编号']
 const statusSummary = computed(() =>
   statuses.map((status: string) => ({
     status,
     count: rows.value.filter((row) => String(row.status) === status).length,
   })),
 )
+const stats = computed(() => [
+  { label: '待留样批次', value: rows.value.filter((row) => row.status === '待留样').length },
+  { label: '已留样批次', value: rows.value.filter((row) => row.status === '已留样').length },
+  { label: '已到期批次', value: rows.value.filter((row) => row.status === '已到期').length },
+])
 
 function resetFilters() {
   filters.value = {}
@@ -106,10 +111,6 @@ function resetFilters() {
 
 function exportRows() {
   downloadEntries(meta.key)
-}
-
-function openCreate() {
-  errorMessage.value = '留样记录登记入口尚未接入审批流'
 }
 
 function runAction(action: string, row: EntryRow) {
@@ -125,9 +126,10 @@ function runAction(action: string, row: EntryRow) {
 function reload() {
   errorMessage.value = ''
   try {
-    const payload = listEntries(meta.key, filters.value)
-    rows.value = payload.items
-    total.value = payload.total
+    // 成品检验编号、检验结论随成品检验同源记录联读，留样清单与检验明细一致。
+    const joined = attachQcToRetainSamples(listEntries(meta.key).items)
+    rows.value = filterRows(joined, filters.value)
+    total.value = rows.value.length
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '留样管理列表读取失败'
   }
