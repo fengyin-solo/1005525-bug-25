@@ -24,6 +24,11 @@
       </span>
     </p>
 
+    <p class="catalog-strip">
+      <span class="page-desc">检验项目取自统一目录（与成品检验、复检各入口同一套）：</span>
+      <span v-for="name in itemNames" :key="name" class="catalog-chip">{{ name }}</span>
+    </p>
+
     <form class="filter-bar" @submit.prevent="reload">
       <label v-for="field in filterFields" :key="field" class="filter-item">
         <span>{{ field }}</span>
@@ -43,7 +48,10 @@
       </thead>
       <tbody>
         <tr v-for="row in rows" :key="String(row.id)">
-          <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
+          <td v-for="column in columns" :key="column">
+            <span v-if="column === '检验项目'" class="tag ok">{{ row[column] ?? '—' }}</span>
+            <span v-else>{{ row[column] ?? '—' }}</span>
+          </td>
           <td>{{ row.status }}</td>
           <td class="row-actions">
             <button
@@ -79,12 +87,14 @@ import {
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
+import { inspectionItemNames } from '@/domain/inspection-items'
 import type { EntryRow } from '@/data/types'
 
 const meta = moduleMeta('stability')
 const columns = ["考察编号", "考察批号", "考察条件", "考察时间点", "检验项目", "考察结果", "考察人", "考察状态"]
 const actions = ["提交考察", "确认完成", "终止考察"]
 const statuses = ["待考察", "考察中", "已完成", "已终止"]
+const itemNames = inspectionItemNames()
 const stats = [{"label": "待考察批次", "value": 0}, {"label": "考察中批次", "value": 0}, {"label": "已完成考察数", "value": 0}]
 
 const rows = ref<EntryRow[]>([])

@@ -43,6 +43,12 @@ export function runAction(key: string, id: number, action: string): ActionResult
   if (current === target) {
     return { ok: false, message: `${meta.entity}已经是「${target}」，不用重复操作` }
   }
+  // 状态只能一段一段向前走：从后段状态倒着操作（如已合格再点判定不合格）一律拒收。
+  const fromIndex = meta.statuses.indexOf(current)
+  const targetIndex = meta.statuses.indexOf(target)
+  if (fromIndex >= 0 && targetIndex >= 0 && targetIndex < fromIndex) {
+    return { ok: false, message: `${meta.entity}状态只能向前流转，不能从「${current}」倒序回到「${target}」` }
+  }
   const lastStatus = meta.statuses[meta.statuses.length - 1]
   const updated: EntryRow = {
     ...rows[index],

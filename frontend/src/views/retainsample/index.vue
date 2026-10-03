@@ -37,6 +37,7 @@
       <thead>
         <tr>
           <th v-for="column in columns" :key="column">{{ column }}</th>
+          <th>成品检验结论</th>
           <th>当前状态</th>
           <th>可执行动作</th>
         </tr>
@@ -44,6 +45,11 @@
       <tbody>
         <tr v-for="row in rows" :key="String(row.id)">
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
+          <td>
+            <span v-if="row.检验结论 === '合格'" class="tag ok">合格</span>
+            <span v-else-if="row.检验结论 === '不合格'" class="tag bad">不合格</span>
+            <span v-else class="tag muted">未同步</span>
+          </td>
           <td>{{ row.status }}</td>
           <td class="row-actions">
             <button
@@ -58,7 +64,7 @@
           </td>
         </tr>
         <tr v-if="!rows.length">
-          <td :colspan="columns.length + 2" class="empty-state">暂无留样管理数据，可先登记留样记录</td>
+          <td :colspan="columns.length + 3" class="empty-state">暂无留样管理数据，可先登记留样记录</td>
         </tr>
       </tbody>
     </table>
@@ -75,14 +81,15 @@ import { computed, onMounted, ref } from 'vue'
 
 import {
   downloadEntries,
-  listEntries,
+  filterRows,
   moduleMeta,
   runAction as applyAction,
 } from '@/api/local-service'
+import { retainRowsWithQc } from '@/api/finishedqc-service'
 import type { EntryRow } from '@/data/types'
 
 const meta = moduleMeta('retainsample')
-const columns = ["留样编号", "对应批号", "留样数量", "留样期限", "存放条件", "取样日期", "销毁日期", "留样状态"]
+const columns = ["留样编号", "对应批号", "留样数量", "留样期限", "存放条件", "取样日期", "销毁日期", "检验编号", "留样状态"]
 const actions = ["登记留样", "标记到期", "办理销毁"]
 const statuses = ["待留样", "已留样", "已到期", "已销毁"]
 const stats = [{"label": "待留样批次", "value": 0}, {"label": "已留样批次", "value": 0}, {"label": "本月销毁数", "value": 0}]
@@ -125,9 +132,10 @@ function runAction(action: string, row: EntryRow) {
 function reload() {
   errorMessage.value = ''
   try {
-    const payload = listEntries(meta.key, filters.value)
-    rows.value = payload.items
-    total.value = payload.total
+    const synced = retainRowsWithQc()
+    const matched = filterRows(synced, filters.value)
+    rows.value = matched
+    total.value = matched.length
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '留样管理列表读取失败'
   }
